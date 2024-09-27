@@ -1,15 +1,20 @@
 import { Button, Input, Typography } from "antd";
 import { useState } from "react";
 
-export default function HomePage() {
+export default function HomePage({ navigate, setUsername }: { navigate: (page: 'chat') => void, setUsername: (username: string) => void }) {
   const [isInputVisible, setInputVisible] = useState(false);
   const [inputStatus, setInputStatus] = useState<"" | "error">("");
   const [inputValue, setInputValue] = useState("");
 
   function handleSignWithUsername() {
     if (inputValue === "") setInputStatus("error");
+    navigate('chat')
+    setUsername(inputValue);
   }
-  function handleSign() {}
+  function handleSign() {
+    setUsername("");
+    navigate('chat')
+  }
 
   return (
     <div className="min-h-screen w-screen flex justify-center items-center bg-cover bg-no-repeat bg-[url('/background.png')]">

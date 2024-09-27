@@ -1,41 +1,86 @@
+import { InternalServerErrorException } from '@nestjs/common';
 import {
+  ConnectedSocket,
+  MessageBody,
+  SubscribeMessage,
   WebSocketGateway,
   WebSocketServer,
-  OnGatewayConnection,
-  OnGatewayDisconnect,
-  OnGatewayInit,
 } from '@nestjs/websockets';
-import { Logger } from '@nestjs/common';
-import { Server, WebSocket } from 'ws';
+import mongoose from 'mongoose';
+import { Server } from 'ws';
 
-@WebSocketGateway({
-  cors: {
-    origin: '*', // Allow CORS if required for cross-origin WebSocket connections
-  },
-})
-export class MessageGateway
-  implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect
-{
+@WebSocketGateway()
+export class MessageGateway {
   @WebSocketServer() server: Server;
-  private logger: Logger = new Logger('WebsocketGateway');
 
-  afterInit(server: Server) {
-    this.logger.log('WebSocket gateway initialized');
+  groups = [];
+
+  handleConnection(client: any) {
+    client.id = new mongoose.Types.ObjectId().toString();
   }
 
-  handleConnection(client: WebSocket) {
-    this.logger.log('Client connected');
-    client.send('Welcome to WebSocket server');
+  @SubscribeMessage('message')
+  handleEvent(
+    @MessageBody() message: { content: string; groupId: string },
+    @ConnectedSocket() client: any /*Socket*/,
+  ) {
+    this.sendMessageToGroup({
+      content: message.content,
+      author: client.username,
+      id: client.id,
+      groupId: message.groupId,
+    });
+    return {
+      type: 'message',
+      content: message.content,
+      author: client.username,
+      groupId: message.groupId,
+    };
   }
 
-  handleDisconnect(client: WebSocket) {
-    this.logger.log('Client disconnected');
+  @SubscribeMessage('set_username')
+  handleUsernameChange(
+    @MessageBody() data: string,
+    @ConnectedSocket() client: any /*Socket*/,
+  ) {
+    client.username = data;
   }
 
-  sendMessageToAll(message: string) {
+  @SubscribeMessage('create_group')
+  handleGroupCreation(@MessageBody() data: string) {
+    const groupId = new mongoose.Types.ObjectId().toString();
+    this.groups.push([{ id: groupId, name: data }]);
+    return { type: 'create_group', groupId, groupName: data };
+  }
+
+  @SubscribeMessage('join_random_group')
+  handleJoinRandomGroup() {
+    const groupName = this.groups[0].name;
+    const groupId = this.groups[0].id;
+    return { type: 'join_group', groupId, groupName };
+  }
+
+  @SubscribeMessage('join_group')
+  handleJoinGroup(@MessageBody() data: string) {
+    const existingGroup = this.groups.find((i) => i.id === data);
+    if (!existingGroup)
+      throw new InternalServerErrorException('Group not found.');
+    return {
+      type: 'join_group',
+      groupId: existingGroup.id,
+      groupName: existingGroup.name,
+    };
+  }
+
+  sendMessageToGroup(data: {
+    content: string;
+    author: string;
+    id: string;
+    groupId: string;
+  }) {
     this.server.clients.forEach((client) => {
-      if (client.readyState === WebSocket.OPEN) {
-        client.send(message);
+      if (client.readyState === WebSocket.OPEN && client.id !== data.id) {
+        client.send(JSON.stringify({ ...data, id: undefined }));
       }
     });
   }

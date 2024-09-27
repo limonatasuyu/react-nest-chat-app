@@ -1,162 +1,326 @@
-import { Button, Input } from "antd";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
+import { faker } from "@faker-js/faker";
+import ChatList from "./ChatList";
+import ChatMessages from "./ChatMessages";
+import MessageInput from "./MessageInput";
+import GroupJoin from "./GroupJoin";
+import { Button, Input, Modal, message } from "antd";
+import DiceIcon from "./DiceIcon";
+import { CopyOutlined, ShareAltOutlined } from "@ant-design/icons";
 
-const mockChats = [
-  {
-    id: 0,
-    name: "Chat 1",
-    lastMessage: {
-      author: "User1",
-      message: "Hey, how are you?",
-    },
-  },
-  {
-    id: 1,
-    name: "Chat 2",
-    lastMessage: {
-      author: "User2",
-      message: "Let's meet tomorrow.",
-    },
-  },
-  {
-    id: 2,
-    name: "Chat 3",
-    lastMessage: {
-      author: "User3",
-      message: "Where are the files?",
-    },
-  },
-];
-
-const mockCurrentChat = {
-  id: 0,
-  name: "Chat 1",
-  items: [
-    {
-      time: new Date(),
-      author: "User1",
-      content: "Hello!",
-    },
-    {
-      time: new Date(),
-      author: "User2",
-      content: "Hi, how's it going?",
-    },
-  ],
-};
-
-function getRandomColor() {
-  const colors = ["#F56565", "#ED8936", "#48BB78", "#4299E1", "#9F7AEA"];
-  return colors[Math.floor(Math.random() * colors.length)];
+// Generate a random room name with an adjective, noun, and number for uniqueness
+function generateRandomRoomName() {
+  const adjective = faker.word.adjective();
+  const noun = faker.word.noun();
+  const number = faker.number.int({ min: 1, max: 999 });
+  return `${capitalize(adjective)}${capitalize(noun)}${number}`;
 }
 
-export default function ChatPage() {
-  const [chats, setChats] = useState(mockChats);
-  const [currentChat, setCurrentChat] = useState(mockCurrentChat);
-  const [webSocket, setWebSocket] = useState<WebSocket | null>(null);
-  const [inputValue, setInputValue] = useState("");
+// Capitalize the first letter of a word
+function capitalize(word: string) {
+  return word.charAt(0).toUpperCase() + word.slice(1);
+}
 
+// Main ChatPage component
+export default function ChatPage({
+  username,
+  setUsername,
+}: {
+  username: string;
+  setUsername: (username: string) => void;
+}) {
+  const [rooms, setRooms] = useState<
+    { id: string; name: string; lastMessage?: { author: string; content: string } }[]
+  >([]);
+  const [roomMessages, setRoomMessages] = useState<
+    { id: string; name: string; messages: { author: string; content: string; time: Date }[] }[]
+  >([]);
+  const [activeMessages, setActiveMessages] = useState<{ author: string; content: string; time: Date }[]>([]);
+  const [activeRoom, setActiveRoom] = useState<{ id: string; name: string } | null>(null);
+  const [messageInput, setMessageInput] = useState("");
+  const [joinGroupLink, setJoinGroupLink] = useState("");
+  const [newGroupName, setNewGroupName] = useState("");
+  const [isGroupJoined, setIsGroupJoined] = useState(false);
+  const [isCreatingRoom, setIsCreatingRoom] = useState(false);
+  const socketRef = useRef<WebSocket | null>(null);
+
+  // Handle WebSocket connection and events
   useEffect(() => {
-    // Open WebSocket connection to the NestJS server
-    const ws = new WebSocket("ws://localhost:3001");
+    socketRef.current = new WebSocket("ws://localhost:3000");
 
-    ws.onopen = () => {
-      console.log("Connected to WebSocket server");
+    socketRef.current.onopen = () => {
+      console.log("Connected to WebSocket");
+      const user = username || faker.internet.userName();
+      setUsername(user);
+      sendSocketEvent("set_username", user);
     };
 
-    ws.onmessage = (event) => {
-      console.log("Message from server:", event.data);
-      //setMessages((prevMessages) => [...prevMessages, event.data]);
+    socketRef.current.onmessage = (event) => {
+      const receivedData = JSON.parse(event.data);
+      console.log("Received from server:", receivedData);
+
+      switch (receivedData.type) {
+        case "message":
+          handleIncomingMessage(receivedData);
+          break;
+        case "create_group":
+        case "join_group":
+          handleGroupUpdate(receivedData);
+          break;
+        default:
+          console.warn("Unknown event type:", receivedData.type);
+      }
     };
 
-    ws.onclose = () => {
-      console.log("Disconnected from WebSocket server");
+    socketRef.current.onclose = () => {
+      console.log("Disconnected from WebSocket");
     };
-
-    setWebSocket(ws);
 
     return () => {
-     // ws.close(); // Clean up WebSocket connection when component unmounts
+      socketRef.current?.close();
     };
-  }, []);
+  }, [username]);
 
-  function handleChatSwitch(id: number) {
-    if (id === currentChat.id) return;
-    return;
+  // Send data through WebSocket
+  function sendSocketEvent(event: string, data: any) {
+    if (socketRef.current?.readyState === WebSocket.OPEN) {
+      socketRef.current.send(JSON.stringify({ event, data }));
+    } else {
+      console.log("WebSocket is not open");
+    }
   }
 
-  function handleSendMessage() {
-    webSocket?.send(inputValue);
+  console.log("activeRoom: ", activeRoom);
+  // Handle incoming messages
+  function handleIncomingMessage(message: any) {
+    const newMessage = { author: message.author, content: message.content, time: new Date() };
+
+    // If the active room matches the message's room, update the message list
+    if (activeRoom?.id === message.groupId) {
+      setActiveMessages((prevMessages) => [...prevMessages, newMessage]);
+    }
+
+    // Update messages for the relevant room
+    setRoomMessages((prevMessages) =>
+      prevMessages.map((room) =>
+        room.id === message.groupId ? { ...room, messages: [...room.messages, newMessage] } : room
+      )
+    );
+
+    // Update the last message in the rooms list
+    setRooms((prevRooms) =>
+      prevRooms.map((room) =>
+        room.id === message.groupId
+          ? { ...room, lastMessage: { author: message.author, content: message.content } }
+          : room
+      )
+    );
+  }
+
+  // Handle group creation/joining
+  function handleGroupUpdate(group: any) {
+    setIsGroupJoined(true);
+    setActiveRoom({ id: group.groupId, name: group.groupName });
+
+    setRooms((prevRooms) => [...prevRooms, { id: group.groupId, name: group.groupName }]);
+    setRoomMessages((prevMessages) => [
+      ...prevMessages,
+      { id: group.groupId, name: group.groupName, messages: [] },
+    ]);
+  }
+
+  // Switch between rooms
+  function switchRoom(id: string) {
+    if (id === activeRoom?.id) return;
+
+    const selectedRoom = rooms.find((room) => room.id === id) || null;
+    setActiveRoom(selectedRoom);
+
+    const messagesForRoom = roomMessages.find((room) => room.id === id)?.messages || [];
+    setActiveMessages(messagesForRoom);
+  }
+
+  // Send a message to the current room
+  function sendMessage() {
+    if (messageInput.trim() === "" || !activeRoom) return;
+
+    sendSocketEvent("message", { content: messageInput, groupId: activeRoom.id });
+    setMessageInput("");
+  }
+
+  // Create a new group room
+  function createRoom() {
+    if (newGroupName.trim() === "") return;
+    sendSocketEvent("create_group", newGroupName);
+    setIsGroupJoined(true);
+    setNewGroupName("");
+  }
+
+  function handleJoinGroup() {
+    sendSocketEvent("join_group", joinGroupLink);
+    setJoinGroupLink("");
   }
 
   return (
     <div className="bg-gray-100 w-screen h-screen flex justify-center items-center p-4">
       <div className="bg-white w-full max-w-5xl h-full flex shadow-lg rounded-lg overflow-hidden">
-        <div className="w-1/3 bg-gray-200 p-4 overflow-auto">
-          <h2 className="text-xl font-bold mb-4">Chats</h2>
-          {chats.map((chat) => (
-            <div
-              key={chat.id}
-              className={`p-3 ${
-                currentChat.id === chat.id
-                  ? "bg-gray-500"
-                  : "bg-white hover:bg-gray-100"
-              } rounded-md mb-2 cursor-pointer`}
-              onClick={() => handleChatSwitch(chat.id)}
-            >
-              <div
-                className={`font-medium ${
-                  currentChat.id === chat.id && "text-white"
-                }`}
-              >
-                {chat.name}
+        {!isGroupJoined ? (
+          <GroupJoin
+            isCreatingNewRoom={isCreatingRoom}
+            groupLink={joinGroupLink}
+            setGroupLink={setJoinGroupLink}
+            groupName={newGroupName}
+            setGroupName={setNewGroupName}
+            setIsCreatingNewRoom={setIsCreatingRoom}
+            handleCreateGroup={createRoom}
+            handleJoinGroup={handleJoinGroup}
+          />
+        ) : (
+          <>
+            <div className="w-1/3 bg-gray-200 p-4 overflow-auto">
+              <div className="flex justify-between">
+                <h2 className="text-xl font-bold mb-4">Rooms</h2>
+                <div className="flex gap-2">
+                  <JoinRoomModal groupLink={joinGroupLink} setGroupLink={setJoinGroupLink} />
+                  <CreateRoomModal
+                    groupName={newGroupName}
+                    setGroupName={setNewGroupName}
+                    handleCreateGroup={createRoom}
+                  />
+                </div>
               </div>
-              <div
-                className={`text-sm truncate text-${
-                  currentChat.id === chat.id ? "white" : "gray-600"
-                }`}
-              >
-                {chat.lastMessage.author}: {chat.lastMessage.message}
+              <ChatList chats={rooms} currentChat={activeRoom} switchChat={switchRoom} />
+            </div>
+            <div className="w-2/3 flex flex-col">
+              <div className="bg-gray-50 p-4 border-b border-gray-200 flex justify-between w-full">
+                <h2 className="text-xl font-semibold">{activeRoom?.name}</h2>
+                <ShareRoomModal groupId={activeRoom?.id} />
+              </div>
+              <div className="flex-1 p-4 overflow-auto bg-white">
+                <ChatMessages chatMessages={activeMessages} />
+              </div>
+              <div className="p-4 bg-gray-100 border-t border-gray-200">
+                <MessageInput
+                  username={username}
+                  messageInput={messageInput}
+                  setMessageInput={setMessageInput}
+                  sendMessage={sendMessage}
+                />
               </div>
             </div>
-          ))}
-        </div>
-        <div className="w-2/3 flex flex-col">
-          <div className="bg-gray-50 p-4 border-b border-gray-200">
-            <h2 className="text-xl font-semibold">{currentChat.name}</h2>
-          </div>
-          <div className="flex-1 p-4 overflow-auto bg-white">
-            {currentChat.items.map((message, index) => (
-              <div key={index} className="mb-4">
-                <div className={`font-bold text-[${getRandomColor()}]`}>
-                  {message.author}
-                </div>
-                <div className="text-gray-600">{message.content}</div>
-                <div className="text-xs text-gray-500">
-                  {message.time.toLocaleTimeString()}
-                </div>
-              </div>
-            ))}
-          </div>
-          <div className="p-4 bg-gray-100 border-t border-gray-200">
-            <form className="flex gap-2">
-              <Input
-                className="flex-1"
-                placeholder="Type a message..."
-                onChange={(e) => setInputValue(e.target.value)}
-                value={inputValue}
-              />
-              <Button
-                type="primary"
-                disabled={!inputValue.length}
-                onClick={handleSendMessage}
-              >
-                Send
-              </Button>
-            </form>
-          </div>
-        </div>
+          </>
+        )}
       </div>
     </div>
+  );
+}
+
+function CreateRoomModal({
+  groupName,
+  setGroupName,
+  handleCreateGroup,
+}: {
+  groupName: string;
+  setGroupName: (name: string) => void;
+  handleCreateGroup: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <>
+      <Button type="primary" onClick={() => setOpen(true)}>
+        Create New
+      </Button>
+      <Modal
+        title="Create Room"
+        open={open}
+        okText="Create"
+        onCancel={() => setOpen(false)}
+        onOk={() => {
+          handleCreateGroup();
+          setOpen(false);
+        }}
+      >
+        <div className="flex justify-center w-full my-12">
+          <Input
+            placeholder="Group Name"
+            value={groupName}
+            onChange={(e) => setGroupName(e.target.value)}
+            className="mb-2 w-80"
+            suffix={<DiceIcon onClick={() => setGroupName(generateRandomRoomName())} />}
+          />
+        </div>
+      </Modal>
+    </>
+  );
+}
+
+function JoinRoomModal({
+  groupLink,
+  setGroupLink,
+}: {
+  groupLink: string;
+  setGroupLink: (link: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <>
+      <Button type="primary" onClick={() => setOpen(true)}>
+        Join New
+      </Button>
+      <Modal
+        title="Join to Room"
+        open={open}
+        okText="Create"
+        onCancel={() => setOpen(false)}
+        onOk={() => {
+          setOpen(false);
+        }}
+      >
+        <div className="flex justify-center w-full my-12">
+          <Input
+            placeholder="Group Name"
+            value={groupLink}
+            onChange={(e) => setGroupLink(e.target.value)}
+            className="mb-2 w-80"
+          />
+        </div>
+      </Modal>
+    </>
+  );
+}
+
+function ShareRoomModal({ groupId }: { groupId?: string }) {
+  const [open, setOpen] = useState(false);
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(groupId ?? "");
+      message.success("Copied to clipboard!");
+    } catch (err) {
+      message.error("Failed to copy!");
+    }
+  };
+
+  return (
+    <>
+      <ShareAltOutlined onClick={() => setOpen(true)} />{" "}
+      <Modal
+        title="Copy room id"
+        open={open}
+        footer={null}
+        onCancel={() => setOpen(false)}
+      >
+        <div className="flex justify-center w-full my-12">
+          <Input
+            placeholder="Group Name"
+            value={groupId}
+            className="mb-2 w-80"
+            suffix={<CopyOutlined onClick={handleCopy} />}
+          />
+        </div>
+      </Modal>
+    </>
   );
 }
