@@ -40,12 +40,19 @@ const ChatList: FC<ChatListProps> = ({ chats, currentChat, switchChat }) => {
           </div>
           <div
             className={`text-sm truncate ${
-              currentChat?.id === chat.id
-                ? "text-white"
-                : "text-gray-600"
+              currentChat?.id === chat.id ? "text-white" : "text-gray-600"
             }`}
           >
-            <div style={{ fontWeight: 'bold' }}>{chat.lastMessage?.author}:</div> {chat.lastMessage?.content}
+            {chat.lastMessage ? (
+              <div>
+                <span style={{ fontWeight: "bold" }}>
+                  {chat.lastMessage?.author}:&nbsp;
+                </span>
+                {chat.lastMessage?.content}
+              </div>
+            ) : (
+              <div>No new messages.</div>
+            )}
           </div>
         </div>
       ))}
@@ -54,4 +61,3 @@ const ChatList: FC<ChatListProps> = ({ chats, currentChat, switchChat }) => {
 };
 
 export default ChatList;
-

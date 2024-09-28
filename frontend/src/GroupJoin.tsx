@@ -38,32 +38,32 @@ const GroupJoin: FC<GroupJoinProps> = ({
   return (
     <div className="flex flex-col w-full h-full justify-center items-center">
       <Typography.Title level={2} className="mb-4">
-        Join or Create a Group
+        Join or Create a Room
       </Typography.Title>
       {isCreatingNewRoom ? (
         <>
           <Input
-            placeholder="Group Name"
+            placeholder="Room Name"
             value={groupName}
             onChange={(e) => setGroupName(e.target.value)}
             className="mb-2 w-80"
             suffix={<DiceIcon onClick={() => setGroupName(generateRandomRoomName())} />}
           />
           <Button type="primary" onClick={handleCreateGroup} className="mb-2">
-            Create Group
+            Create Room
           </Button>
-          <Button onClick={() => setIsCreatingNewRoom(false)}>Join Existing Group</Button>
+          <Button onClick={() => setIsCreatingNewRoom(false)}>Join Existing Room</Button>
         </>
       ) : (
         <>
           <Input
-            placeholder="Group Link"
+            placeholder="Room Link"
             value={groupLink}
             onChange={(e) => setGroupLink(e.target.value)}
             className="mb-2 w-80"
           />
           <Button type="primary" onClick={handleJoinGroup}>
-            Join Group
+            Join Room
           </Button>
           <Button onClick={() => setIsCreatingNewRoom(true)} className="mt-2">
             Create New Room

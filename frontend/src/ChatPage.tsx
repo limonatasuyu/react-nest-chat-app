@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import { faker } from "@faker-js/faker";
 import ChatList from "./ChatList";
 import ChatMessages from "./ChatMessages";
@@ -44,59 +44,13 @@ export default function ChatPage({
   const [isCreatingRoom, setIsCreatingRoom] = useState(false);
   const socketRef = useRef<WebSocket | null>(null);
 
-  // Handle WebSocket connection and events
-  useEffect(() => {
-    socketRef.current = new WebSocket("ws://localhost:3000");
 
-    socketRef.current.onopen = () => {
-      console.log("Connected to WebSocket");
-      const user = username || faker.internet.userName();
-      setUsername(user);
-      sendSocketEvent("set_username", user);
-    };
-
-    socketRef.current.onmessage = (event) => {
-      const receivedData = JSON.parse(event.data);
-      console.log("Received from server:", receivedData);
-
-      switch (receivedData.type) {
-        case "message":
-          handleIncomingMessage(receivedData);
-          break;
-        case "create_group":
-        case "join_group":
-          handleGroupUpdate(receivedData);
-          break;
-        default:
-          console.warn("Unknown event type:", receivedData.type);
-      }
-    };
-
-    socketRef.current.onclose = () => {
-      console.log("Disconnected from WebSocket");
-    };
-
-    return () => {
-      socketRef.current?.close();
-    };
-  }, [username]);
-
-  // Send data through WebSocket
-  function sendSocketEvent(event: string, data: any) {
-    if (socketRef.current?.readyState === WebSocket.OPEN) {
-      socketRef.current.send(JSON.stringify({ event, data }));
-    } else {
-      console.log("WebSocket is not open");
-    }
-  }
-
-  console.log("activeRoom: ", activeRoom);
-  // Handle incoming messages
-  function handleIncomingMessage(message: any) {
+  const handleIncomingMessage = useCallback((message: any) => {
     const newMessage = { author: message.author, content: message.content, time: new Date() };
 
     // If the active room matches the message's room, update the message list
     if (activeRoom?.id === message.groupId) {
+      console.log("wghaaa")
       setActiveMessages((prevMessages) => [...prevMessages, newMessage]);
     }
 
@@ -115,13 +69,62 @@ export default function ChatPage({
           : room
       )
     );
+  }, [activeRoom?.id])
+
+  useEffect(() => {
+    socketRef.current = new WebSocket("ws://localhost:3000");
+
+    socketRef.current.onopen = () => {
+      console.log("Connected to WebSocket");
+      const user = username || faker.internet.userName();
+      setUsername(user);
+      sendSocketEvent("set_username", user);
+    };
+
+    socketRef.current.onmessage = (event) => {
+      const receivedData = JSON.parse(event.data);
+      console.log("Received from server:", receivedData);
+
+      switch (receivedData.type ?? event.type) {
+        case "message":
+          handleIncomingMessage(receivedData);
+          break;
+        case "create_group":
+        case "join_group":
+          handleGroupUpdate(receivedData);
+          break;
+        case "group_not_found":
+          message.error("Couldn't found the room");
+          break;
+        default:
+          console.warn("Unknown event type:", event.type);
+          message.error("Unknown error occured.");
+      }
+    };
+
+    socketRef.current.onclose = () => {
+      console.log("Disconnected from WebSocket");
+    };
+
+    return () => {
+      socketRef.current?.close();
+    };
+  }, [username, handleIncomingMessage, setUsername]);
+
+  // Send data through WebSocket
+  function sendSocketEvent(event: string, data: any) {
+    if (socketRef.current?.readyState === WebSocket.OPEN) {
+      socketRef.current.send(JSON.stringify({ event, data }));
+    } else {
+      console.log("WebSocket is not open");
+    }
   }
 
-  // Handle group creation/joining
   function handleGroupUpdate(group: any) {
     setIsGroupJoined(true);
     setActiveRoom({ id: group.groupId, name: group.groupName });
 
+    setActiveMessages([]);
     setRooms((prevRooms) => [...prevRooms, { id: group.groupId, name: group.groupName }]);
     setRoomMessages((prevMessages) => [
       ...prevMessages,
@@ -129,7 +132,6 @@ export default function ChatPage({
     ]);
   }
 
-  // Switch between rooms
   function switchRoom(id: string) {
     if (id === activeRoom?.id) return;
 
@@ -140,7 +142,6 @@ export default function ChatPage({
     setActiveMessages(messagesForRoom);
   }
 
-  // Send a message to the current room
   function sendMessage() {
     if (messageInput.trim() === "" || !activeRoom) return;
 
@@ -148,7 +149,6 @@ export default function ChatPage({
     setMessageInput("");
   }
 
-  // Create a new group room
   function createRoom() {
     if (newGroupName.trim() === "") return;
     sendSocketEvent("create_group", newGroupName);
@@ -181,7 +181,7 @@ export default function ChatPage({
               <div className="flex justify-between">
                 <h2 className="text-xl font-bold mb-4">Rooms</h2>
                 <div className="flex gap-2">
-                  <JoinRoomModal groupLink={joinGroupLink} setGroupLink={setJoinGroupLink} />
+                  <JoinRoomModal groupLink={joinGroupLink} setGroupLink={setJoinGroupLink} handleJoinGroup={handleJoinGroup} />
                   <CreateRoomModal
                     groupName={newGroupName}
                     setGroupName={setNewGroupName}
@@ -258,9 +258,11 @@ function CreateRoomModal({
 function JoinRoomModal({
   groupLink,
   setGroupLink,
+  handleJoinGroup,
 }: {
   groupLink: string;
   setGroupLink: (link: string) => void;
+  handleJoinGroup: () => void;
 }) {
   const [open, setOpen] = useState(false);
 
@@ -272,9 +274,10 @@ function JoinRoomModal({
       <Modal
         title="Join to Room"
         open={open}
-        okText="Create"
+        okText="Join"
         onCancel={() => setOpen(false)}
         onOk={() => {
+          handleJoinGroup();
           setOpen(false);
         }}
       >

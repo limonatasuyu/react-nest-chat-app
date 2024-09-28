@@ -1,20 +1,44 @@
 import HomePage from "./HomePage";
 import ChatPage from "./ChatPage";
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { Typography } from "antd";
 
 function App() {
-  const [username, setUsername] = useState("");
-  const [page, setPage] = useState('');
+  const [currentPath, setCurrentPath] = useState(
+    window.location.hash.slice(1) || "/"
+  );
 
-  function navigate(pageName: '' | 'chat') {
-    setPage(pageName);
-    window.history.pushState(null, "", `/${pageName}`);
-  };
+  const [username, setUsername] = useState("");
+
+  useEffect(() => {
+    const handleHashChange = () =>
+      setCurrentPath(window.location.hash.slice(1) || "/");
+    window.addEventListener("hashchange", handleHashChange);
+
+    return () => {
+      window.removeEventListener("hashchange", handleHashChange);
+    };
+  }, []);
+
+  function navigate(path: string) {
+    window.location.hash = path;
+  }
 
   return (
     <>
-      {page === "" && <HomePage navigate={navigate} setUsername={setUsername} />}
-      {page === "chat" && <ChatPage username={username} setUsername={setUsername} />}
+      {currentPath === "/" && (
+        <HomePage navigate={navigate} setUsername={setUsername} />
+      )}
+      {currentPath === "chat" && (
+        <ChatPage username={username} setUsername={setUsername} />
+      )}
+      {currentPath !== "chat" && currentPath !== "/" && (
+        <div className="w-screen h-screen flex items-center justify-center">
+          <Typography.Title>
+            404 Not Found
+          </Typography.Title>
+        </div>
+      )}
     </>
   );
 }

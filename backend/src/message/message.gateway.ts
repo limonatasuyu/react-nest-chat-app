@@ -1,4 +1,3 @@
-import { InternalServerErrorException } from '@nestjs/common';
 import {
   ConnectedSocket,
   MessageBody,
@@ -6,8 +5,8 @@ import {
   WebSocketGateway,
   WebSocketServer,
 } from '@nestjs/websockets';
-import mongoose from 'mongoose';
 import { Server } from 'ws';
+import { v4 as uuidv4 } from 'uuid';
 
 @WebSocketGateway()
 export class MessageGateway {
@@ -16,7 +15,7 @@ export class MessageGateway {
   groups = [];
 
   handleConnection(client: any) {
-    client.id = new mongoose.Types.ObjectId().toString();
+    client.id = uuidv4();
   }
 
   @SubscribeMessage('message')
@@ -48,8 +47,8 @@ export class MessageGateway {
 
   @SubscribeMessage('create_group')
   handleGroupCreation(@MessageBody() data: string) {
-    const groupId = new mongoose.Types.ObjectId().toString();
-    this.groups.push([{ id: groupId, name: data }]);
+    const groupId = uuidv4();
+    this.groups.push({ id: groupId, name: data });
     return { type: 'create_group', groupId, groupName: data };
   }
 
@@ -63,8 +62,11 @@ export class MessageGateway {
   @SubscribeMessage('join_group')
   handleJoinGroup(@MessageBody() data: string) {
     const existingGroup = this.groups.find((i) => i.id === data);
-    if (!existingGroup)
-      throw new InternalServerErrorException('Group not found.');
+    if (!existingGroup) {
+      return {
+        type: 'group_not_found',
+      };
+    }
     return {
       type: 'join_group',
       groupId: existingGroup.id,
