@@ -72,7 +72,7 @@ export default function ChatPage({
   }, [activeRoom?.id])
 
   useEffect(() => {
-    socketRef.current = new WebSocket("ws://react-nest-chat-app-production.up.railway.app/");
+    socketRef.current = new WebSocket("wss://react-nest-chat-app-production.up.railway.app/");
 
     socketRef.current.onopen = () => {
       console.log("Connected to WebSocket");
