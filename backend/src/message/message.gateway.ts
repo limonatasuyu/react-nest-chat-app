@@ -5,7 +5,7 @@ import {
   WebSocketGateway,
   WebSocketServer,
 } from '@nestjs/websockets';
-import { Server } from 'ws';
+import { Server, WebSocket } from 'ws';
 import { v4 as uuidv4 } from 'uuid';
 
 @WebSocketGateway()
